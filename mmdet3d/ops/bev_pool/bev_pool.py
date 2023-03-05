@@ -80,18 +80,28 @@ class QuickCumsumCuda(torch.autograd.Function):
         return x_grad, None, None, None, None, None, None
 
 
+# B: 批次数
+# D: BEV特征网格的Z轴方向的网格数
+# H: BEV特征网格的X轴方向的网格数
+# W: BEV特征网格的Y轴方向的网格数
 def bev_pool(feats, coords, B, D, H, W):
     assert feats.shape[0] == coords.shape[0]
 
+    # 此时特征图feats和对应的BEV网格坐标coords都已经展平，一一对应
+    # 按照B、D、W、H的顺序，对特征图feats及其网格坐标coords升序排序
+    # coords中记录
     ranks = (
-        coords[:, 0] * (W * D * B)
-        + coords[:, 1] * (D * B)
-        + coords[:, 2] * B
-        + coords[:, 3]
+        coords[:, 0] * (W * D * B)  #X轴方向的网格索引
+        + coords[:, 1] * (D * B)    #Y轴方向的网格索引
+        + coords[:, 2] * B          #Z轴方向的网格索引
+        + coords[:, 3]              #批次索引
     )
+    # argsort()返回的是从小到大的索引
     indices = ranks.argsort()
     feats, coords, ranks = feats[indices], coords[indices], ranks[indices]
 
+    # 使用CUDA完成池化操作
+    # 通过coords中的网格索引，将feats中的特征值累加到对应的BEV网格中
     x = QuickCumsumCuda.apply(feats, coords, ranks, B, D, H, W)
     x = x.permute(0, 4, 1, 2, 3).contiguous()
     return x
